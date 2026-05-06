@@ -5,7 +5,7 @@
 body {
   margin: 0;
   font-family: Inter, 'Segoe UI', Roboto, Arial, sans-serif;
-  background: #e2e8f0;
+  background: #eaf0f8;
   color: #0f172a;
 }
 
@@ -15,10 +15,20 @@ body {
 
 .react-flow__edge-path {
   stroke: #94a3b8;
-  stroke-width: 1.4;
+  stroke-width: 1.5;
+  transition: stroke 180ms ease, stroke-width 180ms ease;
 }
 
 .react-flow__node.selected .tree-node {
   outline: 2px solid #38bdf8;
   outline-offset: 2px;
+}
+
+.react-flow__node {
+  transition: transform 320ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.react-flow__minimap {
+  border-radius: 8px;
+  overflow: hidden;
 }
