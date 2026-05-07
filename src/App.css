@@ -131,6 +131,54 @@
   padding-top: 0.65rem;
 }
 
+.add-node-panel {
+  margin-top: 0.9rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.65rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.add-node-panel h4 {
+  margin: 0 0 0.2rem;
+}
+
+.add-node-panel label {
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+}
+
+.add-node-panel input,
+.add-node-panel select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 0.85rem;
+  background: var(--input);
+  color: var(--fg-main);
+}
+
+.add-node-panel button {
+  margin-top: 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--btn);
+  color: #e2e8f0;
+  height: 34px;
+  cursor: pointer;
+}
+
+.add-node-panel .danger-btn {
+  background: #7f1d1d;
+  border-color: #7f1d1d;
+}
+
+.add-node-panel .danger-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .tree-node {
   width: 170px;
   min-height: 62px;

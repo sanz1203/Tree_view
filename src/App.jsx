@@ -17,7 +17,7 @@ const NODE_HEIGHT = 54
 const HORIZONTAL_GAP = 34
 const VERTICAL_GAP = 92
 
-const treeData = {
+const initialTreeData = {
   id: 'root',
   label: 'Root',
   meta: 'Level 0',
@@ -57,6 +57,59 @@ const treeData = {
       ],
     },
   ],
+}
+
+function addChildToTree(node, parentId, childNode) {
+  if (node.id === parentId) {
+    return {
+      ...node,
+      children: [...(node.children ?? []), childNode],
+    }
+  }
+
+  if (!node.children?.length) {
+    return node
+  }
+
+  return {
+    ...node,
+    children: node.children.map((child) => addChildToTree(child, parentId, childNode)),
+  }
+}
+
+function removeNodeAndCollect(node, targetId) {
+  if (!node.children?.length) {
+    return { node, removedIds: new Set(), removed: false }
+  }
+
+  const removedIds = new Set()
+  let removed = false
+
+  const collectIds = (branch) => {
+    removedIds.add(branch.id)
+    ;(branch.children ?? []).forEach(collectIds)
+  }
+
+  const nextChildren = []
+  node.children.forEach((child) => {
+    if (child.id === targetId) {
+      removed = true
+      collectIds(child)
+      return
+    }
+    const result = removeNodeAndCollect(child, targetId)
+    if (result.removed) {
+      removed = true
+      result.removedIds.forEach((id) => removedIds.add(id))
+    }
+    nextChildren.push(result.node)
+  })
+
+  return {
+    node: removed ? { ...node, children: nextChildren } : node,
+    removedIds,
+    removed,
+  }
 }
 
 function buildTreeIndex(root) {
@@ -137,8 +190,6 @@ function buildLayout(
   collapsed,
   forcedExpanded,
   onToggle,
-  hoveredId,
-  selectedId,
   matchedNodeIds,
 ) {
   const nodes = []
@@ -160,7 +211,6 @@ function buildLayout(
         meta: node.meta ?? '',
         hasChildren: (node.children?.length ?? 0) > 0,
         isCollapsed: collapsed.has(node.id) && !forcedExpanded.has(node.id),
-        isActive: hoveredId === node.id || selectedId === node.id,
         isMatched: matchedNodeIds.has(node.id),
         onToggle,
       },
@@ -170,26 +220,20 @@ function buildLayout(
 
     let childLeft = left
     children.forEach((child) => {
-      const isRelatedToFocus =
-        hoveredId === node.id ||
-        hoveredId === child.id ||
-        selectedId === node.id ||
-        selectedId === child.id
-
       edges.push({
         id: `${node.id}-${child.id}`,
         source: node.id,
         target: child.id,
         type: 'step',
-        animated: isRelatedToFocus,
+        animated: false,
         style: {
-          stroke: isRelatedToFocus ? '#38bdf8' : '#9aa8bc',
-          strokeWidth: isRelatedToFocus ? 2.2 : 1.45,
+          stroke: '#9aa8bc',
+          strokeWidth: 1.45,
           transition: 'stroke 180ms ease, stroke-width 180ms ease',
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: isRelatedToFocus ? '#38bdf8' : '#9aa8bc',
+          color: '#9aa8bc',
         },
       })
 
@@ -205,12 +249,14 @@ function buildLayout(
 
 function TreeCanvas() {
   const { fitView, setCenter } = useReactFlow()
-  const treeIndex = useMemo(() => buildTreeIndex(treeData), [])
+  const [treeData, setTreeData] = useState(initialTreeData)
   const [collapsed, setCollapsed] = useState(new Set())
-  const [hoveredNodeId, setHoveredNodeId] = useState(null)
   const [selectedNodeId, setSelectedNodeId] = useState('root')
   const [search, setSearch] = useState('')
-  const [isDark, setIsDark] = useState(true)
+  const [newNodeLabel, setNewNodeLabel] = useState('')
+  const [newNodeMeta, setNewNodeMeta] = useState('')
+  const [newNodeParentId, setNewNodeParentId] = useState('root')
+  const treeIndex = useMemo(() => buildTreeIndex(treeData), [treeData])
 
   const matchedNodeIds = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -266,11 +312,79 @@ function TreeCanvas() {
     collect(treeData)
     setCollapsed(new Set(ids))
     setSelectedNodeId('root')
-  }, [])
+  }, [treeData])
 
   const expandAll = useCallback(() => {
     setCollapsed(new Set())
   }, [])
+
+  const addNodeFromForm = useCallback(() => {
+    const label = newNodeLabel.trim()
+    const parentId = newNodeParentId.trim()
+    if (!label || !treeIndex.nodeById.has(parentId)) {
+      return
+    }
+
+    const slug = label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+    const baseId = slug || 'node'
+    const usedIds = new Set(treeIndex.nodeById.keys())
+    let candidate = baseId
+    let counter = 1
+    while (usedIds.has(candidate)) {
+      candidate = `${baseId}-${counter}`
+      counter += 1
+    }
+
+    const childNode = {
+      id: candidate,
+      label,
+      meta: newNodeMeta.trim() || 'New node',
+    }
+
+    setTreeData((prev) => addChildToTree(prev, parentId, childNode))
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      next.delete(parentId)
+      return next
+    })
+    setSelectedNodeId(candidate)
+    setNewNodeLabel('')
+    setNewNodeMeta('')
+  }, [newNodeLabel, newNodeMeta, newNodeParentId, treeIndex.nodeById])
+
+  const deleteSelectedNode = useCallback(() => {
+    if (!selectedNodeId || selectedNodeId === 'root') {
+      return
+    }
+
+    const selected = treeIndex.nodeById.get(selectedNodeId)
+    if (!selected) {
+      return
+    }
+
+    const shouldDelete = window.confirm(
+      `Delete "${selected.label}" and its sub-nodes? This cannot be undone.`,
+    )
+    if (!shouldDelete) {
+      return
+    }
+
+    const result = removeNodeAndCollect(treeData, selectedNodeId)
+    if (!result.removed) {
+      return
+    }
+
+    setTreeData(result.node)
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      result.removedIds.forEach((id) => next.delete(id))
+      return next
+    })
+    setSelectedNodeId('root')
+  }, [selectedNodeId, treeData, treeIndex.nodeById])
 
   const { nodes, edges } = useMemo(
     () =>
@@ -279,18 +393,9 @@ function TreeCanvas() {
         collapsed,
         forcedExpanded,
         onToggle,
-        hoveredNodeId,
-        selectedNodeId,
         matchedNodeIds,
       ),
-    [
-      collapsed,
-      forcedExpanded,
-      hoveredNodeId,
-      matchedNodeIds,
-      onToggle,
-      selectedNodeId,
-    ],
+    [collapsed, forcedExpanded, matchedNodeIds, onToggle],
   )
 
   const focusSelectedNode = useCallback(() => {
@@ -342,9 +447,10 @@ function TreeCanvas() {
 
   const selectedNodeData = selectedNodeId ? treeIndex.nodeById.get(selectedNodeId) : null
   const selectedNodeDepth = selectedNodeId ? treeIndex.depthById.get(selectedNodeId) : null
+  const parentOptions = [...treeIndex.nodeById.values()]
 
   return (
-    <div className={`tree-wrapper ${isDark ? 'dark' : 'light'}`}>
+    <div className="tree-wrapper light">
       <header className="page-header">
         <h1>Tree View Visualizer</h1>
         <p>
@@ -359,9 +465,6 @@ function TreeCanvas() {
             placeholder="Search node label or metadata..."
             onChange={(event) => setSearch(event.target.value)}
           />
-          <button type="button" onClick={() => setIsDark((prev) => !prev)}>
-            {isDark ? 'Light mode' : 'Dark mode'}
-          </button>
           <button type="button" onClick={expandAll}>
             Expand all
           </button>
@@ -382,8 +485,6 @@ function TreeCanvas() {
             nodeTypes={nodeTypes}
             fitView
             fitViewOptions={{ padding: 0.24, maxZoom: 1.2 }}
-            onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)}
-            onNodeMouseLeave={() => setHoveredNodeId(null)}
             onNodeClick={(_, node) => setSelectedNodeId(node.id)}
             onPaneClick={() => setSelectedNodeId(null)}
             minZoom={0.25}
@@ -393,14 +494,14 @@ function TreeCanvas() {
             elementsSelectable
             proOptions={{ hideAttribution: true }}
           >
-            <Background gap={20} size={1} color={isDark ? '#314056' : '#d4dce7'} />
+            <Background gap={20} size={1} color="#d4dce7" />
             <MiniMap
+              position="top-right"
               zoomable
               pannable
-              nodeColor={(node) =>
-                node.id === selectedNodeId ? '#38bdf8' : isDark ? '#243245' : '#7e91a9'
-              }
-              maskColor={isDark ? 'rgba(15,23,42,0.34)' : 'rgba(15,23,42,0.08)'}
+              style={{ width: 150, height: 96 }}
+              nodeColor={(node) => (node.id === selectedNodeId ? '#38bdf8' : '#7e91a9')}
+              maskColor="rgba(15,23,42,0.08)"
             />
             <Controls showInteractive={false} />
           </ReactFlow>
@@ -435,6 +536,48 @@ function TreeCanvas() {
             <p>
               <strong>Matched nodes:</strong> {matchedNodeIds.size}
             </p>
+          </div>
+          <div className="add-node-panel">
+            <h4>Add node</h4>
+            <label htmlFor="parent-id">Parent</label>
+            <select
+              id="parent-id"
+              value={newNodeParentId}
+              onChange={(event) => setNewNodeParentId(event.target.value)}
+            >
+              {parentOptions.map((node) => (
+                <option key={node.id} value={node.id}>
+                  {node.label} ({node.id})
+                </option>
+              ))}
+            </select>
+            <label htmlFor="new-node-label">Label</label>
+            <input
+              id="new-node-label"
+              type="text"
+              value={newNodeLabel}
+              onChange={(event) => setNewNodeLabel(event.target.value)}
+              placeholder="e.g. B3"
+            />
+            <label htmlFor="new-node-meta">Metadata</label>
+            <input
+              id="new-node-meta"
+              type="text"
+              value={newNodeMeta}
+              onChange={(event) => setNewNodeMeta(event.target.value)}
+              placeholder="optional"
+            />
+            <button type="button" onClick={addNodeFromForm}>
+              Add child node
+            </button>
+            <button
+              type="button"
+              className="danger-btn"
+              onClick={deleteSelectedNode}
+              disabled={!selectedNodeId || selectedNodeId === 'root'}
+            >
+              Delete selected node
+            </button>
           </div>
         </aside>
       </div>
